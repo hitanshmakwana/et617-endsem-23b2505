@@ -15,7 +15,8 @@ export const initialState = {
   answeredCount: 0,
   generatedCount: 0,
   seenIds: [],
-  diagnosticQueue: ["Q03", "Q04"],
+  lifetimeSeenIds: [],
+  diagnosticQueue: ["Q04"],
   lastFormat: null,
   generatedKeys: [],
   current: null,
@@ -29,13 +30,23 @@ export const initialState = {
 export function reducer(state, action) {
   switch (action.type) {
     case "START_SESSION": {
-      const firstQ = QUESTIONS.find(q => q.id === "Q03") || QUESTIONS[0];
+      const lifetime = state.lifetimeSeenIds || [];
+
+      // Select diagnostic 1 (level 1 range-values): Q03, Q01, Q02
+      const d1Candidates = ["Q03", "Q01", "Q02"];
+      const d1Id = d1Candidates.find(id => !lifetime.includes(id)) || d1Candidates[Math.floor(Math.random() * d1Candidates.length)];
+      const firstQ = QUESTIONS.find(q => q.id === d1Id) || QUESTIONS[0];
+
+      // Select diagnostic 2 (level 1 indent-repeat): Q04, Q13
+      const d2Candidates = ["Q04", "Q13"];
+      const d2Id = d2Candidates.find(id => !lifetime.includes(id)) || d2Candidates[Math.floor(Math.random() * d2Candidates.length)];
+
       return {
         ...state,
         screen: "QUESTION",
         remainingSeconds: state.remainingSeconds || SESSION_SECONDS,
         timeUp: false,
-        diagnosticQueue: ["Q04"],
+        diagnosticQueue: [d2Id],
         current: {
           question: firstQ,
           startedAtMs: Date.now(),
@@ -56,6 +67,7 @@ export function reducer(state, action) {
     case "START_FRESH": {
       return {
         ...initialState,
+        lifetimeSeenIds: state.lifetimeSeenIds || [],
         screen: "INTRO"
       };
     }
@@ -103,7 +115,7 @@ export function reducer(state, action) {
     }
 
     case "SUBMIT_ANSWER": {
-      const { result, decision, nextQuestion, isPrereqCheck } = action.payload;
+      const { result, decision, nextQuestion, isPrereqCheck, specKey } = action.payload;
       const currentQ = state.current.question;
 
       const newResults = [
@@ -133,8 +145,8 @@ export function reducer(state, action) {
 
       const newAnsweredCount = state.answeredCount + 1;
       const newSeenIds = [...state.seenIds, currentQ.id];
-      const newGeneratedKeys = currentQ.source === "generated" && action.payload.specKey
-        ? [...state.generatedKeys, action.payload.specKey]
+      const newGeneratedKeys = currentQ.source === "generated" && specKey
+        ? [...state.generatedKeys, specKey]
         : state.generatedKeys;
       const newGeneratedCount = nextQuestion && nextQuestion.source === "generated"
         ? state.generatedCount + 1
@@ -181,7 +193,6 @@ export function reducer(state, action) {
       // Handle Prerequisite check flow
       if (state.prereq && state.prereq.active) {
         if (state.prereq.step === 1) {
-          // Check 1 done -> Go to Check 2
           return {
             ...state,
             prereq: { ...state.prereq, step: 2 },
@@ -194,7 +205,6 @@ export function reducer(state, action) {
             screen: "QUESTION"
           };
         } else if (state.prereq.step === 2) {
-          // Check 2 done -> Return to main loop practice
           return {
             ...state,
             prereq: { active: false, step: 0 },
@@ -255,7 +265,6 @@ export function reducer(state, action) {
 
     case "FINISH_LESSON": {
       if (state.prereq && state.prereq.active && state.prereq.step === 0) {
-        // PRE1 finished -> start Check 1
         return {
           ...state,
           prereq: { ...state.prereq, step: 1 },
@@ -269,7 +278,6 @@ export function reducer(state, action) {
         };
       }
 
-      // ALT_* finished -> proceed to nextQuestion
       return {
         ...state,
         current: {
@@ -290,8 +298,10 @@ export function reducer(state, action) {
     }
 
     case "PRACTISE_AGAIN": {
+      const mergedLifetime = Array.from(new Set([...(state.lifetimeSeenIds || []), ...state.seenIds]));
       return {
         ...initialState,
+        lifetimeSeenIds: mergedLifetime,
         screen: "WELCOME"
       };
     }

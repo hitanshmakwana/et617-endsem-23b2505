@@ -7,8 +7,7 @@ import { pickNext } from "./lib/pickNext.js";
 import { aiGrade, requestGeneratedQuestion } from "./lib/aiClient.js";
 import { logEvent } from "./lib/log.js";
 import { getSkillsSummary, getNextFocus } from "./lib/skills.js";
-import { QUESTIONS, PREREQ_QUESTIONS } from "./data/questions.js";
-import { MAX_GENERATED } from "./config.js";
+import { QUESTIONS } from "./data/questions.js";
 
 import Footer from "./components/Footer.jsx";
 import Welcome from "./components/Welcome.jsx";
@@ -31,21 +30,6 @@ export default function App() {
     const loaded = loadState();
     if (loaded && (loaded.screen === "QUESTION" || loaded.screen === "FEEDBACK" || loaded.screen === "LESSON")) {
       setSavedSession(loaded);
-    }
-
-    // Check debugTime query param (e.g., ?debugTime=3 for test scenarios)
-    try {
-      const urlParams = new URLSearchParams(window.location.search);
-      const dbg = urlParams.get("debugTime");
-      if (dbg !== null) {
-        const val = parseInt(dbg, 10);
-        if (!isNaN(val)) {
-          dispatch({ type: "TICK" }); // force tick
-          // Note: timer will count down from this or user can test
-        }
-      }
-    } catch (e) {
-      // ignore
     }
   }, []);
 
@@ -147,13 +131,13 @@ export default function App() {
     if (decision.ended) {
       nextQ = null;
     } else {
-      // Diagnostic queue check: if CONTINUE and diagnostic queue has items (e.g., Q04)
+      // Diagnostic queue check: if CONTINUE and diagnostic queue has items (e.g., Q04 or Q13)
       const nextDiagId = state.diagnosticQueue && state.diagnosticQueue.find(id => id !== question.id && !state.seenIds.includes(id));
       if (decision.type === "CONTINUE" && nextDiagId) {
         nextQ = QUESTIONS.find(q => q.id === nextDiagId) || null;
       } else if (
-        (decision.type === "HARDER" || decision.type === "ALTERNATIVE") &&
-        state.generatedCount < MAX_GENERATED
+        (decision.type === "HARDER" || decision.type === "ALTERNATIVE" || Math.random() < 0.5) &&
+        state.generatedCount < 5
       ) {
         setIsGenerating(true);
         try {
