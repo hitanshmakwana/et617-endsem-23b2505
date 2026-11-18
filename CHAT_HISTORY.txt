@@ -238,3 +238,73 @@ The project codebase is now 100% complete, fully dynamic, and verified:
 - Pedagogical engine: 4 question formats, misconception diagnosis (M1, M2), adaptive decision rule (HARDER, ALTERNATIVE, PREREQUISITE), dynamic parameter generation, 10-minute active timer with pause and resume, and qualitative summary.
 - Vercel config: vercel.json in root configured for deployment.
 --------------------------------------------------------------------------------
+[USER - 2026-11-18 19:47:33]
+gotthiss
+[Image: Vercel import screen error "To link a GitHub repository, you need to install the GitHub integration first. Make sure there aren't any typos and that you have access to the repository if it's private."]
+
+--------------------------------------------------------------------------------
+[ASSISTANT - 2026-11-18 19:48:00]
+Explanation and solution for the Vercel error:
+1. Repo Name Discrepancy:
+   The screenshot shows Vercel attempting to import `hitanshmakwana/et617-endsem-23b3505`.
+   If you renamed your GitHub repo to `et617-endsem-23b2505`, you must go back to the Vercel Import list and select `et617-endsem-23b2505`.
+2. GitHub Permissions on Vercel:
+   If the repo is private or newly created, Vercel needs permission:
+   - On the Vercel Import page, click "Adjust GitHub App Permissions" (or go to GitHub Settings -> Applications -> Vercel).
+   - Under Repository Access, select "All repositories" or specifically add `et617-endsem-23b2505`.
+3. Project Name on Vercel:
+   Per the exam spec, set the Project Name on Vercel to `et617-23b2505`.
+--------------------------------------------------------------------------------
+[USER - 2026-11-18 19:53:36]
+https://et617-endsem-23b2505.vercel.app/
+
+this is the actual vercel link so update it everywhere
+
+--------------------------------------------------------------------------------
+[ASSISTANT - 2026-11-18 19:55:00]
+Updated the live Vercel URL to:
+https://et617-endsem-23b2505.vercel.app
+
+Updated in:
+- DESIGN.md
+- README.md
+- docs/FINAL_REPORT.md
+- REPORT.md
+--------------------------------------------------------------------------------
+[USER - 2026-11-18 19:56:02]
+since I have to submit report as pdf
+can you add some demo images in the report like how the ui looks and something like that, also hw do i get it in pdf form
+
+[USER - 2026-11-18 19:56:11]
+continue
+
+--------------------------------------------------------------------------------
+[ASSISTANT - 2026-11-18 19:59:50]
+1. Real UI Screenshots & Visual Mockups added:
+   - Captured real high-resolution live screenshot of the app from https://et617-endsem-23b2505.vercel.app (`docs/screenshots/welcome.png`).
+   - Built styled UI mockups for Scenario A (Progression to HARDER) and Scenario B (Misconception M1 to ALTERNATIVE and PREREQUISITE).
+2. Direct PDF Generation:
+   - Created `REPORT.html` formatted with publication-quality print CSS (@page A4, page breaks, typography, tables, badges).
+   - Compiled `REPORT.pdf` (and `docs/FINAL_REPORT.pdf`) directly using headless Chrome print-to-pdf.
+   - The PDF is ready in your root directory (`REPORT.pdf`) for immediate submission.
+--------------------------------------------------------------------------------
+[USER - 2026-11-18 19:58:23]
+after this, clean the project structure properly, maintain the structure properly 
+Also if time permits, can you make change in UI, like this UI is very basic at this point
+Make it interactive and do it fast
+
+--------------------------------------------------------------------------------
+[ASSISTANT - 2026-11-18 20:02:00]
+1. UI Polish & Interactivity Enhancement:
+   - Elevated overall visual styling with modern soft shadows (`--shadow-md`, `--shadow-lg`), rounded card geometry (`--radius: 16px`), and smooth cubic-bezier transitions.
+   - Interactive options: added hover elevation (`translateY(-1px)`), subtle active feedback, and bold numerical/letter badges.
+   - Mac-style terminal aesthetics for code boxes with high-contrast monospace clarity.
+   - Enhanced top navigation bar into a floating capsule chip with distinct timer pills and progress indicators.
+   - Polished feedback notification cards for both green success (`✔ Got it!`) and warm amber corrections (`💡 Let's look at this together`).
+   - Maintained all non-negotiable pedagogical rules: zero red color, no crosses (❌), no in-session percentage scores.
+
+2. Project Structure Verification:
+   - Verified clean folder hierarchy across root, api/, src/ (components, data, lib, state), and docs/.
+   - Confirmed zero loose scratch scripts or unwanted dependencies.
+   - Production build verified: `npm run build` passes cleanly.
+--------------------------------------------------------------------------------

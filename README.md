@@ -3,7 +3,7 @@
 > **Adaptive Practice Tutor for Python Loops**  
 > Built for the ET 617 End-Semester Examination.  
 > **Card:** `P4-T10-L5-C4` · **Roll No:** `23b2505`  
-> **Live App:** [https://et617-23b2505.vercel.app](https://et617-23b2505.vercel.app)  
+> **Live App:** [https://et617-endsem-23b2505.vercel.app](https://et617-endsem-23b2505.vercel.app)  
 > **GitHub Repo:** `et617-endsem-23b2505`
 
 ---

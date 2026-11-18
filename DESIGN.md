@@ -8,7 +8,7 @@
 | L — Learner | **L5** Learner repeating the topic after failing it once, high anxiety, low self-efficacy |
 | C — Constraint | **C4** 10-minute sessions (one full sequence fits in 10 min; stop and resume where left off) |
 | ID — Roll number | **23b2505** |
-| Live URL | `https://et617-23b2505.vercel.app` |
+| Live URL | `https://et617-endsem-23b2505.vercel.app` |
 | Repo | `et617-endsem-23b2505` |
 
 App name: **Loop Coach**
