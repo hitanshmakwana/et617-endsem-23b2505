@@ -33,3 +33,31 @@ export function clearState() {
     // ignore
   }
 }
+
+export const STORAGE_PROFILE_KEY = "et617_profile_v1";
+
+export function loadProfile() {
+  try {
+    const raw = localStorage.getItem(STORAGE_PROFILE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      return parsed;
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+export function saveProfile(profile) {
+  try {
+    if (!profile) {
+      localStorage.removeItem(STORAGE_PROFILE_KEY);
+    } else {
+      localStorage.setItem(STORAGE_PROFILE_KEY, JSON.stringify(profile));
+    }
+  } catch (e) {
+    // localStorage might be unavailable
+  }
+}

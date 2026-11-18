@@ -1,7 +1,7 @@
 import React from "react";
 import { APP_NAME } from "../config.js";
 
-export default function Welcome({ savedSession, onStart, onResume, onStartFresh, onGoAbout }) {
+export default function Welcome({ savedSession, startingLevel = 1, onStart, onResume, onStartFresh, onGoAbout }) {
   const hasSaved = Boolean(
     savedSession &&
     (savedSession.screen === "QUESTION" || savedSession.screen === "FEEDBACK" || savedSession.screen === "LESSON")
@@ -18,9 +18,15 @@ export default function Welcome({ savedSession, onStart, onResume, onStartFresh,
   return (
     <div className="card-box" style={{ textAlign: "center", padding: "32px 20px" }}>
       <h1 style={{ fontSize: "32px", marginBottom: "8px", color: "var(--primary-dark)" }}>{APP_NAME}</h1>
-      <p style={{ color: "var(--muted)", marginBottom: "28px", fontSize: "19px" }}>
+      <p style={{ color: "var(--muted)", marginBottom: startingLevel > 1 ? "12px" : "28px", fontSize: "19px" }}>
         Practise Python loops in 10 quiet minutes. No marks. No pressure.
       </p>
+
+      {startingLevel > 1 && !hasSaved && (
+        <div style={{ display: "inline-block", background: "var(--blue-bg)", color: "var(--primary-dark)", padding: "4px 12px", borderRadius: "16px", fontSize: "14px", fontWeight: "600", marginBottom: "20px" }}>
+          🌱 Level {startingLevel} Practice
+        </div>
+      )}
 
       {hasSaved ? (
         <div style={{ marginBottom: "24px" }}>

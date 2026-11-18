@@ -131,8 +131,12 @@ export default function App() {
     if (decision.ended) {
       nextQ = null;
     } else {
-      // Diagnostic queue check: if CONTINUE and diagnostic queue has items (e.g., Q04 or Q13)
-      const nextDiagId = state.diagnosticQueue && state.diagnosticQueue.find(id => id !== question.id && !state.seenIds.includes(id));
+      // Diagnostic queue check: if CONTINUE and diagnostic queue has items
+      const nextDiagId = state.diagnosticQueue && state.diagnosticQueue.find(id =>
+        id !== question.id &&
+        !state.seenIds.includes(id) &&
+        !(state.masteredQuestionIds || []).includes(id)
+      );
       if (decision.type === "CONTINUE" && nextDiagId) {
         nextQ = QUESTIONS.find(q => q.id === nextDiagId) || null;
       } else if (
@@ -162,6 +166,19 @@ export default function App() {
           },
           decision.nextSpec
         );
+      }
+
+      // If all static questions are mastered, generate a fresh parametric question
+      if (!nextQ) {
+        try {
+          const genResult = await requestGeneratedQuestion(state, decision.nextSpec);
+          if (genResult && genResult.question) {
+            nextQ = genResult.question;
+            specKey = genResult.specKey;
+          }
+        } catch (e) {
+          // ignore
+        }
       }
     }
 
@@ -237,6 +254,7 @@ export default function App() {
         {state.screen === "WELCOME" && (
           <Welcome
             savedSession={savedSession}
+            startingLevel={state.startingLevel}
             onStart={handleStart}
             onResume={handleResume}
             onStartFresh={handleStartFresh}

@@ -12,14 +12,18 @@ function shuffle(arr) {
 export function pickNext(state, spec) {
   const currentSeen = state.seenIds || [];
   const lifetimeSeen = state.lifetimeSeenIds || [];
+  const mastered = state.masteredQuestionIds || [];
   const seenFormats = (state.results || []).map(r => r.format).filter(Boolean);
 
-  // All unseen in current session
-  let unseen = QUESTIONS.filter(q => !currentSeen.includes(q.id));
+  // Exclude questions that are already answered correctly (mastered) OR seen in this session
+  let unmastered = QUESTIONS.filter(q => !mastered.includes(q.id));
+  let unseen = unmastered.filter(q => !currentSeen.includes(q.id));
 
   // If repeat practice, prefer questions never seen in earlier sessions
   const neverSeen = unseen.filter(q => !lifetimeSeen.includes(q.id));
-  const pool = neverSeen.length >= 2 ? neverSeen : unseen;
+  const pool = neverSeen.length >= 2 ? neverSeen : (unseen.length > 0 ? unseen : unmastered.filter(q => !currentSeen.includes(q.id)));
+
+  if (!pool.length) return null;
 
   const byDist = lv => (a, b) => Math.abs(a.level - lv) - Math.abs(b.level - lv);
 

@@ -59,7 +59,12 @@ export default function Summary({
           color: "var(--primary-dark)"
         }}
       >
-        <strong>Next time, start with:</strong> {nextFocus}
+        <p style={{ margin: "0 0 6px 0" }}>
+          <strong>Next time, start with:</strong> {nextFocus}
+        </p>
+        <p style={{ margin: 0, fontSize: "14px", color: "var(--muted)" }}>
+          🌱 Your progress has been saved. Next test will adapt to your current mastery.
+        </p>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>

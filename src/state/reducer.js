@@ -1,6 +1,10 @@
 import { QUESTIONS, PREREQ_QUESTIONS } from "../data/questions.js";
 import { LESSONS } from "../data/lessons.js";
 import { SESSION_SECONDS } from "../config.js";
+import { loadProfile, saveProfile } from "./storage.js";
+import { buildFromSpec, localSpec } from "../lib/generator.js";
+
+const savedProfile = loadProfile() || {};
 
 export const initialState = {
   version: 1,
@@ -8,15 +12,18 @@ export const initialState = {
   prevScreen: "WELCOME",
   remainingSeconds: SESSION_SECONDS,
   timeUp: false,
-  level: 1,
+  level: savedProfile.startingLevel || 1,
+  startingLevel: savedProfile.startingLevel || 1,
   correctStreak: 0,
   wrongStreak: 0,
   recentNoHintCorrect: 0,
   answeredCount: 0,
   generatedCount: 0,
   seenIds: [],
-  lifetimeSeenIds: [],
-  diagnosticQueue: ["Q04"],
+  lifetimeSeenIds: savedProfile.lifetimeSeenIds || [],
+  masteredQuestionIds: savedProfile.masteredQuestionIds || [],
+  sessionCount: savedProfile.sessionCount || 0,
+  diagnosticQueue: [],
   lastFormat: null,
   generatedKeys: [],
   current: null,
@@ -27,28 +34,65 @@ export const initialState = {
   results: []
 };
 
+function selectInitialQuestions(startLevel, mastered = [], lifetime = []) {
+  const isAvailable = (id) => !mastered.includes(id);
+  const isFresh = (id) => isAvailable(id) && !lifetime.includes(id);
+
+  let pool1, pool2;
+  if (startLevel === 3) {
+    pool1 = ["Q10", "Q11", "Q12"];
+    pool2 = ["Q14", "Q10", "Q11"];
+  } else if (startLevel === 2) {
+    pool1 = ["Q05", "Q08", "Q06"];
+    pool2 = ["Q07", "Q09", "Q15"];
+  } else {
+    pool1 = ["Q03", "Q01", "Q02", "Q16"];
+    pool2 = ["Q04", "Q13", "Q15"];
+  }
+
+  // Pick first question ID
+  let q1Id = pool1.find(isFresh) || pool1.find(isAvailable);
+  if (!q1Id) {
+    const anyLevelQ = QUESTIONS.find(q => q.level === startLevel && isAvailable(q.id));
+    if (anyLevelQ) q1Id = anyLevelQ.id;
+  }
+
+  // Pick second diagnostic question ID
+  let q2Id = pool2.find(id => id !== q1Id && isFresh(id)) || pool2.find(id => id !== q1Id && isAvailable(id));
+  if (!q2Id) {
+    const anyLevelQ2 = QUESTIONS.find(q => q.level === startLevel && q.id !== q1Id && isAvailable(q.id));
+    if (anyLevelQ2) q2Id = anyLevelQ2.id;
+  }
+
+  let firstQ = q1Id ? QUESTIONS.find(q => q.id === q1Id) : null;
+  if (!firstQ) {
+    firstQ = buildFromSpec(localSpec(startLevel, null, []), startLevel, 1);
+  }
+
+  return {
+    firstQuestion: firstQ,
+    diagnosticQueue: q2Id ? [q2Id] : []
+  };
+}
+
 export function reducer(state, action) {
   switch (action.type) {
     case "START_SESSION": {
+      const startingLevel = state.startingLevel || state.level || 1;
       const lifetime = state.lifetimeSeenIds || [];
+      const mastered = state.masteredQuestionIds || [];
 
-      // Select diagnostic 1 (level 1 range-values): Q03, Q01, Q02
-      const d1Candidates = ["Q03", "Q01", "Q02"];
-      const d1Id = d1Candidates.find(id => !lifetime.includes(id)) || d1Candidates[Math.floor(Math.random() * d1Candidates.length)];
-      const firstQ = QUESTIONS.find(q => q.id === d1Id) || QUESTIONS[0];
-
-      // Select diagnostic 2 (level 1 indent-repeat): Q04, Q13
-      const d2Candidates = ["Q04", "Q13"];
-      const d2Id = d2Candidates.find(id => !lifetime.includes(id)) || d2Candidates[Math.floor(Math.random() * d2Candidates.length)];
+      const { firstQuestion, diagnosticQueue } = selectInitialQuestions(startingLevel, mastered, lifetime);
 
       return {
         ...state,
+        level: startingLevel,
         screen: "QUESTION",
         remainingSeconds: state.remainingSeconds || SESSION_SECONDS,
         timeUp: false,
-        diagnosticQueue: [d2Id],
+        diagnosticQueue,
         current: {
-          question: firstQ,
+          question: firstQuestion,
           startedAtMs: Date.now(),
           hintsUsed: 0,
           isPrereqCheck: false
@@ -67,7 +111,11 @@ export function reducer(state, action) {
     case "START_FRESH": {
       return {
         ...initialState,
+        level: state.startingLevel || 1,
+        startingLevel: state.startingLevel || 1,
+        masteredQuestionIds: state.masteredQuestionIds || [],
         lifetimeSeenIds: state.lifetimeSeenIds || [],
+        sessionCount: state.sessionCount || 0,
         screen: "INTRO"
       };
     }
@@ -145,6 +193,11 @@ export function reducer(state, action) {
 
       const newAnsweredCount = state.answeredCount + 1;
       const newSeenIds = [...state.seenIds, currentQ.id];
+      const isCorrect = result.verdict === "correct";
+      const newMasteredIds = (isCorrect && !isPrereqCheck && currentQ.id)
+        ? Array.from(new Set([...(state.masteredQuestionIds || []), currentQ.id]))
+        : (state.masteredQuestionIds || []);
+
       const newGeneratedKeys = currentQ.source === "generated" && specKey
         ? [...state.generatedKeys, specKey]
         : state.generatedKeys;
@@ -161,6 +214,7 @@ export function reducer(state, action) {
         ...state,
         answeredCount: newAnsweredCount,
         seenIds: newSeenIds,
+        masteredQuestionIds: newMasteredIds,
         lastFormat: currentQ.format,
         diagnosticQueue: nextDiag,
         generatedKeys: newGeneratedKeys,
@@ -298,10 +352,56 @@ export function reducer(state, action) {
     }
 
     case "PRACTISE_AGAIN": {
+      const normalResults = (state.results || []).filter(r => !r.isPrereqCheck);
+      const correctResults = normalResults.filter(r => r.verdict === "correct");
+      const total = normalResults.length;
+      const correctCount = correctResults.length;
+      const accuracy = total > 0 ? (correctCount / total) : 0;
+
+      // Collect all mastered question IDs across sessions
+      const newlyMastered = correctResults.map(r => r.id).filter(Boolean);
+      const mergedMastered = Array.from(new Set([...(state.masteredQuestionIds || []), ...newlyMastered]));
       const mergedLifetime = Array.from(new Set([...(state.lifetimeSeenIds || []), ...state.seenIds]));
+
+      // Adaptive cross-session level progression
+      const currentStartingLevel = state.startingLevel || 1;
+      let nextStartingLevel = currentStartingLevel;
+      const currentFinalLevel = state.level || 1;
+
+      // Learner performed well: >= 60% accuracy on at least 2 questions,
+      // or reached a higher level with positive accuracy
+      const performedGood = total >= 2 && (accuracy >= 0.60 || (currentFinalLevel > currentStartingLevel && accuracy >= 0.50));
+      const struggled = total >= 3 && accuracy < 0.40;
+
+      if (performedGood) {
+        if (currentStartingLevel === 1) {
+          nextStartingLevel = 2;
+        } else if (currentStartingLevel === 2) {
+          nextStartingLevel = 3;
+        } else {
+          nextStartingLevel = 3;
+        }
+      } else if (struggled) {
+        nextStartingLevel = Math.max(1, currentStartingLevel - 1);
+      }
+
+      const nextSessionCount = (state.sessionCount || 0) + 1;
+
+      // Save persistent learner profile
+      saveProfile({
+        startingLevel: nextStartingLevel,
+        masteredQuestionIds: mergedMastered,
+        lifetimeSeenIds: mergedLifetime,
+        sessionCount: nextSessionCount
+      });
+
       return {
         ...initialState,
+        level: nextStartingLevel,
+        startingLevel: nextStartingLevel,
+        masteredQuestionIds: mergedMastered,
         lifetimeSeenIds: mergedLifetime,
+        sessionCount: nextSessionCount,
         screen: "WELCOME"
       };
     }
