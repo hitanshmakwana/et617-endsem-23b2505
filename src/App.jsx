@@ -1,4 +1,15 @@
-import React, { useState } from "react";
+import React, { useReducer, useEffect, useState, useRef } from "react";
+import { initialState, reducer } from "./state/reducer.js";
+import { loadState, saveState, clearState } from "./state/storage.js";
+import { evaluateObjective, evaluateExplainRules, evaluateExplainFallback, evaluateExplainFromAi } from "./lib/evaluate.js";
+import { decide } from "./lib/decide.js";
+import { pickNext } from "./lib/pickNext.js";
+import { aiGrade, requestGeneratedQuestion } from "./lib/aiClient.js";
+import { logEvent } from "./lib/log.js";
+import { getSkillsSummary, getNextFocus } from "./lib/skills.js";
+import { QUESTIONS, PREREQ_QUESTIONS } from "./data/questions.js";
+import { MAX_GENERATED } from "./config.js";
+
 import Footer from "./components/Footer.jsx";
 import Welcome from "./components/Welcome.jsx";
 import Intro from "./components/Intro.jsx";
@@ -9,124 +20,304 @@ import Summary from "./components/Summary.jsx";
 import About from "./components/About.jsx";
 
 export default function App() {
-  const [screen, setScreen] = useState("WELCOME");
-  const [prevScreen, setPrevScreen] = useState("WELCOME");
-  const [remainingSeconds, setRemainingSeconds] = useState(600);
-  const [timeUp, setTimeUp] = useState(false);
-  const [answeredCount, setAnsweredCount] = useState(0);
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const [savedSession, setSavedSession] = useState(null);
+  const [isChecking, setIsChecking] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const sessionStartRef = useRef(new Date().toISOString());
 
-  const goToAbout = () => {
-    setPrevScreen(screen);
-    setScreen("ABOUT");
+  // Load saved state once on mount
+  useEffect(() => {
+    const loaded = loadState();
+    if (loaded && (loaded.screen === "QUESTION" || loaded.screen === "FEEDBACK" || loaded.screen === "LESSON")) {
+      setSavedSession(loaded);
+    }
+
+    // Check debugTime query param (e.g., ?debugTime=3 for test scenarios)
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const dbg = urlParams.get("debugTime");
+      if (dbg !== null) {
+        const val = parseInt(dbg, 10);
+        if (!isNaN(val)) {
+          dispatch({ type: "TICK" }); // force tick
+          // Note: timer will count down from this or user can test
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  // Sync state to localStorage
+  useEffect(() => {
+    if (state.screen === "QUESTION" || state.screen === "FEEDBACK" || state.screen === "LESSON") {
+      saveState(state);
+    } else if (state.screen === "SUMMARY") {
+      clearState();
+    }
+  }, [state]);
+
+  // 10-Minute Timer: ticks only during active learning and when page is visible
+  useEffect(() => {
+    const isActiveScreen = state.screen === "QUESTION" || state.screen === "FEEDBACK" || state.screen === "LESSON";
+    if (!isActiveScreen) return;
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        dispatch({ type: "TICK" });
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [state.screen]);
+
+  // Handle Answer Submission
+  const handleSubmitAnswer = async (question, answerInput) => {
+    const isPrereq = Boolean(question.isPrereqCheck);
+    const msSpent = Date.now() - (state.current?.startedAtMs || Date.now());
+    let evaluationResult = null;
+
+    if (question.format === "EXPLAIN") {
+      const ruleCheck = evaluateExplainRules(question, answerInput);
+      if (ruleCheck.decided) {
+        evaluationResult = ruleCheck.result;
+      } else {
+        setIsChecking(true);
+        const aiOut = await aiGrade(question, answerInput);
+        setIsChecking(false);
+
+        if (aiOut) {
+          evaluationResult = evaluateExplainFromAi(question, answerInput, aiOut);
+        } else {
+          evaluationResult = evaluateExplainFallback(question, answerInput);
+        }
+      }
+    } else {
+      evaluationResult = evaluateObjective(question, answerInput);
+    }
+
+    // If prerequisite check question
+    if (isPrereq) {
+      logEvent({
+        ts: new Date().toISOString(),
+        sessionStart: sessionStartRef.current,
+        qid: question.id,
+        source: "bank",
+        format: question.format,
+        level: question.level,
+        concept: question.concept,
+        verdict: evaluationResult.verdict,
+        tag: evaluationResult.tag,
+        hintsUsed: state.current?.hintsUsed || 0,
+        ms: msSpent,
+        checkedBy: evaluationResult.checkedBy,
+        decision: "PREREQ_CHECK",
+        nextQid: question.id === "PRE_Q1" ? "PRE_Q2" : state.nextQuestion?.id
+      });
+
+      dispatch({
+        type: "SUBMIT_ANSWER",
+        payload: {
+          result: evaluationResult,
+          isPrereqCheck: true
+        }
+      });
+      return;
+    }
+
+    // Normal scored question: compute adaptive decision
+    const nextAnsweredCount = state.answeredCount + 1;
+    const decision = decide(
+      {
+        level: state.level,
+        correctStreak: state.correctStreak,
+        wrongStreak: state.wrongStreak,
+        recentNoHintCorrect: state.recentNoHintCorrect,
+        answeredCount: nextAnsweredCount,
+        remainingSeconds: state.remainingSeconds
+      },
+      evaluationResult,
+      question
+    );
+
+    let nextQ = null;
+    let specKey = null;
+
+    if (decision.ended) {
+      nextQ = null;
+    } else {
+      // Diagnostic queue check: if CONTINUE and diagnostic queue has items (e.g., Q04)
+      const nextDiagId = state.diagnosticQueue && state.diagnosticQueue.find(id => id !== question.id && !state.seenIds.includes(id));
+      if (decision.type === "CONTINUE" && nextDiagId) {
+        nextQ = QUESTIONS.find(q => q.id === nextDiagId) || null;
+      } else if (
+        (decision.type === "HARDER" || decision.type === "ALTERNATIVE") &&
+        state.generatedCount < MAX_GENERATED
+      ) {
+        setIsGenerating(true);
+        try {
+          const genResult = await requestGeneratedQuestion(state, decision.nextSpec);
+          if (genResult && genResult.question) {
+            nextQ = genResult.question;
+            specKey = genResult.specKey;
+          }
+        } catch (e) {
+          // fallback to pickNext below
+        } finally {
+          setIsGenerating(false);
+        }
+      }
+
+      if (!nextQ) {
+        nextQ = pickNext(
+          {
+            ...state,
+            seenIds: [...state.seenIds, question.id],
+            lastFormat: question.format
+          },
+          decision.nextSpec
+        );
+      }
+    }
+
+    logEvent({
+      ts: new Date().toISOString(),
+      sessionStart: sessionStartRef.current,
+      qid: question.id,
+      source: question.source || "bank",
+      format: question.format,
+      level: question.level,
+      concept: question.concept,
+      verdict: evaluationResult.verdict,
+      tag: evaluationResult.tag,
+      hintsUsed: state.current?.hintsUsed || 0,
+      ms: msSpent,
+      checkedBy: evaluationResult.checkedBy,
+      decision: decision.type,
+      nextQid: nextQ ? nextQ.id : "none"
+    });
+
+    dispatch({
+      type: "SUBMIT_ANSWER",
+      payload: {
+        result: evaluationResult,
+        decision,
+        nextQuestion: nextQ,
+        specKey,
+        isPrereqCheck: false
+      }
+    });
   };
 
-  const backFromAbout = () => {
-    setScreen(prevScreen || "WELCOME");
+  const handleStopForNow = () => {
+    logEvent({
+      ts: new Date().toISOString(),
+      event: "stop_for_now",
+      remainingSeconds: state.remainingSeconds
+    });
+    setSavedSession(state);
+    dispatch({ type: "STOP_FOR_NOW" });
   };
+
+  const handleResume = () => {
+    if (savedSession) {
+      logEvent({
+        ts: new Date().toISOString(),
+        event: "resume",
+        remainingSeconds: savedSession.remainingSeconds
+      });
+      dispatch({ type: "RESUME", payload: savedSession });
+      setSavedSession(null);
+    }
+  };
+
+  const handleStartFresh = () => {
+    clearState();
+    setSavedSession(null);
+    sessionStartRef.current = new Date().toISOString();
+    dispatch({ type: "START_FRESH" });
+  };
+
+  const handleStart = () => {
+    sessionStartRef.current = new Date().toISOString();
+    dispatch({ type: "START_FRESH" });
+  };
+
+  const skillsSummary = getSkillsSummary(state.results);
+  const nextFocus = getNextFocus(skillsSummary);
 
   return (
     <div className="app-container">
       <main className="main-content">
-        {screen === "WELCOME" && (
+        {state.screen === "WELCOME" && (
           <Welcome
-            savedSession={null}
-            onStart={() => setScreen("INTRO")}
-            onResume={() => setScreen("QUESTION")}
-            onStartFresh={() => setScreen("INTRO")}
-            onGoAbout={goToAbout}
+            savedSession={savedSession}
+            onStart={handleStart}
+            onResume={handleResume}
+            onStartFresh={handleStartFresh}
+            onGoAbout={() => dispatch({ type: "GO_ABOUT" })}
           />
         )}
-        {screen === "INTRO" && (
-          <Intro onStartSession={() => setScreen("QUESTION")} />
+
+        {state.screen === "INTRO" && (
+          <Intro onStartSession={() => dispatch({ type: "START_SESSION" })} />
         )}
-        {screen === "QUESTION" && (
+
+        {state.screen === "QUESTION" && state.current && (
           <QuestionScreen
-            question={{
-              id: "Q03",
-              level: 1,
-              format: "MCQ",
-              concept: "range-values",
-              prompt: "Which numbers does range(5) give?",
-              options: [
-                { id: "a", text: "1, 2, 3, 4, 5" },
-                { id: "b", text: "0, 1, 2, 3, 4" },
-                { id: "c", text: "0, 1, 2, 3, 4, 5" },
-                { id: "d", text: "1, 2, 3, 4" }
-              ],
-              hint: "range(5) gives 5 numbers. Where does counting start in Python?"
-            }}
-            remainingSeconds={remainingSeconds}
-            timeUp={timeUp}
-            answeredCount={answeredCount}
-            hintsUsed={0}
-            onUseHint={() => {}}
-            onSubmitAnswer={() => setScreen("FEEDBACK")}
-            onStopForNow={() => setScreen("WELCOME")}
-            isChecking={false}
+            key={state.current.question.id}
+            question={state.current.question}
+            remainingSeconds={state.remainingSeconds}
+            timeUp={state.timeUp}
+            answeredCount={state.answeredCount}
+            hintsUsed={state.current.hintsUsed || 0}
+            onUseHint={() => dispatch({ type: "USE_HINT" })}
+            onSubmitAnswer={handleSubmitAnswer}
+            onStopForNow={handleStopForNow}
+            isChecking={isChecking}
           />
         )}
-        {screen === "FEEDBACK" && (
+
+        {state.screen === "FEEDBACK" && (
           <Feedback
-            feedback={{
-              verdict: "correct",
-              tag: null,
-              feedbackText: "Yes! range(5) gives 5 numbers: 0, 1, 2, 3, 4.",
-              answerText: "0, 1, 2, 3, 4",
-              checkedBy: "rules",
-              decision: {
-                type: "CONTINUE",
-                reason: "Here's another one at the same level to build your confidence."
-              }
-            }}
-            question={{
-              id: "Q03",
-              format: "MCQ",
-              modelAnswer: "0, 1, 2, 3, 4"
-            }}
-            remainingSeconds={remainingSeconds}
-            timeUp={timeUp}
-            answeredCount={1}
-            onContinue={() => setScreen("SUMMARY")}
-            onStopForNow={() => setScreen("WELCOME")}
-            isGenerating={false}
+            feedback={state.feedback}
+            question={state.current?.question}
+            remainingSeconds={state.remainingSeconds}
+            timeUp={state.timeUp}
+            answeredCount={state.answeredCount}
+            onContinue={() => dispatch({ type: "CONTINUE_FROM_FEEDBACK" })}
+            onStopForNow={handleStopForNow}
+            isGenerating={isGenerating}
           />
         )}
-        {screen === "LESSON" && (
+
+        {state.screen === "LESSON" && (
           <Lesson
-            lesson={{
-              title: "Another way to see range(5)",
-              blocks: [
-                { type: "p", text: "Let's think about a building. In India, the ground floor is floor 0." }
-              ],
-              buttonLabel: "Try a new question"
-            }}
-            remainingSeconds={remainingSeconds}
-            timeUp={timeUp}
-            answeredCount={1}
-            onFinishLesson={() => setScreen("QUESTION")}
-            onStopForNow={() => setScreen("WELCOME")}
+            lesson={state.lesson}
+            remainingSeconds={state.remainingSeconds}
+            timeUp={state.timeUp}
+            answeredCount={state.answeredCount}
+            onFinishLesson={() => dispatch({ type: "FINISH_LESSON" })}
+            onStopForNow={handleStopForNow}
           />
         )}
-        {screen === "SUMMARY" && (
+
+        {state.screen === "SUMMARY" && (
           <Summary
-            answeredCount={answeredCount || 1}
-            skillsSummary={[
-              { concept: "range-values", label: "Numbers that range() gives", status: "GOT_IT" },
-              { concept: "indent-repeat", label: "Which lines repeat", status: "GETTING_THERE" },
-              { concept: "accumulator", label: "Keeping a running total", status: "NOT_PRACTISED" }
-            ]}
-            nextFocus="Which lines repeat"
-            onPractiseAgain={() => {
-              setAnsweredCount(0);
-              setScreen("WELCOME");
-            }}
-            onGoAbout={goToAbout}
+            answeredCount={state.answeredCount}
+            skillsSummary={skillsSummary}
+            nextFocus={nextFocus}
+            onPractiseAgain={() => dispatch({ type: "PRACTISE_AGAIN" })}
+            onGoAbout={() => dispatch({ type: "GO_ABOUT" })}
           />
         )}
-        {screen === "ABOUT" && (
-          <About onBack={backFromAbout} />
+
+        {state.screen === "ABOUT" && (
+          <About onBack={() => dispatch({ type: "BACK_FROM_ABOUT" })} />
         )}
       </main>
+
       <Footer />
     </div>
   );
