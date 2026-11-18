@@ -319,6 +319,56 @@ export const QUESTIONS = [
       "print(total) is not indented, so it runs once and shows 6."
     ],
     modelAnswer: "6"
+  },
+  {
+    id: "Q15", level: 1, format: "ORDER", concept: "indent-repeat", tests: ["M2"],
+    prompt: 'Put the lines in order so that "Hi" prints 2 times, then "Done" prints once.',
+    lines: [
+      { id: "l1", text: 'for i in range(2):' },
+      { id: "l2", text: '    print("Hi")' },
+      { id: "l3", text: 'print("Done")' }
+    ],
+    displayOrder: ["l3", "l1", "l2"],
+    correctOrder: ["l1", "l2", "l3"],
+    hint: "The line starting with for comes first. The indented line goes right under it.",
+    correctFeedback: 'Yes! "Hi" is indented so it repeats 2 times, then "Done" prints once outside.',
+    feedbackByTag: {
+      GENERIC: 'Not quite yet. The indented print("Hi") must sit under the for line, and print("Done") goes after.'
+    },
+    walkthrough: [
+      'First: the loop line "for i in range(2):".',
+      'Second: the indented print("Hi") inside the loop.',
+      'Last: print("Done") outside the loop.'
+    ],
+    modelAnswer: 'for i in range(2):  →      print("Hi")  →  print("Done")'
+  },
+  {
+    id: "Q16", level: 1, format: "EXPLAIN", concept: "range-values", tests: ["M1"],
+    code: 'for i in range(3):\n    print("Hi")',
+    prompt: 'In your own words: why does this loop print "Hi" exactly 3 times?',
+    rubric: {
+      mustMention: [
+        {
+          id: "threeTimes",
+          label: "says range(3) gives 3 numbers / runs 3 times / 3 rounds",
+          patterns: [/3\s*(numbers?|times?|rounds?|values?)/i, /three\s*(numbers?|times?|rounds?|values?)/i, /repeats?\s*3/i, /runs?\s*3/i, /0\s*,?\s*1\s*,?\s*2/i]
+        }
+      ],
+      wrongPatterns: { M1: [/1\s*to\s*3/i, /includes?\s*3/i] }
+    },
+    aiRubricText: 'A correct answer explains that range(3) gives 3 numbers (0, 1, 2) or runs for 3 rounds, so print("Hi") executes 3 times.',
+    hint: 'Think about how many numbers range(3) gives to the loop.',
+    correctFeedback: 'Great explanation! range(3) gives 3 numbers (0, 1, 2), so the loop runs 3 times.',
+    feedbackByTag: {
+      M1: 'You are close! Think about how many numbers range(3) gives.',
+      GENERIC: 'You are close. How many numbers does range(3) produce for the loop?'
+    },
+    walkthrough: [
+      'range(3) produces 3 numbers: 0, 1, 2.',
+      'The loop executes once for each number.',
+      'So print("Hi") runs 3 times.'
+    ],
+    modelAnswer: 'Because range(3) gives three numbers (0, 1, 2), so the loop runs 3 rounds.'
   }
 ];
 

@@ -12,18 +12,27 @@ function shuffle(arr) {
 export function pickNext(state, spec) {
   const currentSeen = state.seenIds || [];
   const lifetimeSeen = state.lifetimeSeenIds || [];
+  const seenFormats = (state.results || []).map(r => r.format).filter(Boolean);
 
   // All unseen in current session
   let unseen = QUESTIONS.filter(q => !currentSeen.includes(q.id));
 
-  // If repeat practice, strongly prefer questions never seen in earlier sessions
+  // If repeat practice, prefer questions never seen in earlier sessions
   const neverSeen = unseen.filter(q => !lifetimeSeen.includes(q.id));
   const pool = neverSeen.length >= 2 ? neverSeen : unseen;
 
   const byDist = lv => (a, b) => Math.abs(a.level - lv) - Math.abs(b.level - lv);
-  const prefer = list => {
+
+  // Strongly prioritize formats that the learner has NOT experienced yet this session!
+  const preferDiverseFormat = list => {
     const shuffled = shuffle(list);
-    return shuffled.find(q => q.format !== state.lastFormat) || shuffled[0];
+    // Find a format not seen at all yet this session
+    const unseenFormatQ = shuffled.find(q => !seenFormats.includes(q.format));
+    if (unseenFormatQ) return unseenFormatQ;
+    // Otherwise find a format different from the immediately preceding question
+    const diffFormatQ = shuffled.find(q => q.format !== state.lastFormat);
+    if (diffFormatQ) return diffFormatQ;
+    return shuffled[0];
   };
 
   let c = pool.filter(q => q.level === spec.level
@@ -35,13 +44,12 @@ export function pickNext(state, spec) {
   if (!c.length) c = pool.filter(q => Math.abs(q.level - spec.level) <= 1).sort(byDist(spec.level));
   if (!c.length) c = pool.slice().sort(byDist(spec.level));
 
-  // If pool was exhausted (e.g., all 14 questions seen across lifetime), fallback to unseen in current session
   if (!c.length && pool !== unseen) {
     let fallback = unseen.filter(q => q.level === spec.level);
     if (!fallback.length) fallback = unseen;
-    if (fallback.length) return prefer(fallback);
+    if (fallback.length) return preferDiverseFormat(fallback);
   }
 
   if (!c.length) return null;
-  return prefer(c);
+  return preferDiverseFormat(c);
 }

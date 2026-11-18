@@ -72,7 +72,6 @@ export function buildFromSpec(spec, level, n) {
         { text: vals.map(v => v + 1).join(" "), tag: "M1" },
         { text: `${start} ${stop}`, tag: "GENERIC" }
       ];
-      // Deduplicate options if any texts collide
       const uniqueOpts = [];
       const seenTexts = new Set();
       for (const opt of rawOpts) {
@@ -166,6 +165,39 @@ export function buildFromSpec(spec, level, n) {
     const m2a = (word + " " + after + " ").repeat(loopN).trim();
     const m2b = Array(loopN).fill(word).join(" ") + " " + Array(loopN).fill(after).join(" ");
 
+    // Support ORDER format dynamically
+    if (format === "ORDER") {
+      const lineList = [
+        { id: "l1", text: `for i in range(${loopN}):` },
+        { id: "l2", text: `    print("${word}")` },
+        { id: "l3", text: `print("${after}")` }
+      ];
+      const displayShuffled = ["l3", "l1", "l2"];
+      return {
+        id: `G-${n}`,
+        source: "generated",
+        level,
+        format: "ORDER",
+        concept: "indent-repeat",
+        tests: ["M2"],
+        prompt: `Put the lines in order. The program must print "${word}" ${loopN} times, then "${after}" once.`,
+        lines: lineList,
+        displayOrder: displayShuffled,
+        correctOrder: ["l1", "l2", "l3"],
+        hint: `The line starting with for comes first. The indented line goes right under it.`,
+        correctFeedback: `Yes! "${word}" is indented so it repeats ${loopN} times, then "${after}" runs once outside.`,
+        feedbackByTag: {
+          GENERIC: `Not quite yet. The indented print("${word}") must sit right under the for line, and print("${after}") goes after.`
+        },
+        walkthrough: [
+          `First: the loop header "for i in range(${loopN}):".`,
+          `Second: the indented print("${word}") inside the loop.`,
+          `Last: print("${after}") unindented outside the loop.`
+        ],
+        modelAnswer: `for i in range(${loopN}):  →      print("${word}")  →  print("${after}")`
+      };
+    }
+
     // Support MCQ format dynamically if requested
     if (format === "MCQ") {
       const rawOpts = [
@@ -257,7 +289,6 @@ export function buildFromSpec(spec, level, n) {
     const total = loopN * stepVal;
     const correct = String(total);
 
-    // M2 misconception: print inside the loop would print running values
     const runningVals = [];
     let acc = 0;
     for (let r = 0; r < loopN; r++) {
@@ -311,7 +342,13 @@ export function localSpec(level, targetTag, usedKeys = []) {
     family = randomChoice(families);
   }
 
-  const chosenFormat = Math.random() < 0.45 ? "MCQ" : "PREDICT";
+  // Actively support MCQ, PREDICT, and ORDER
+  let chosenFormat;
+  if (family === "after_loop") {
+    chosenFormat = randomChoice(["ORDER", "MCQ", "PREDICT"]);
+  } else {
+    chosenFormat = randomChoice(["MCQ", "PREDICT"]);
+  }
 
   for (let attempt = 0; attempt < 30; attempt++) {
     let spec = null;
@@ -350,7 +387,6 @@ export function localSpec(level, targetTag, usedKeys = []) {
     }
   }
 
-  // Safe fallback if all attempts had used keys
   if (family === "range_values") {
     return { family: "range_values", format: chosenFormat, params: { start: 0, stop: 4, step: 1 } };
   }
