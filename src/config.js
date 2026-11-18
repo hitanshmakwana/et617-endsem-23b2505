@@ -1,0 +1,10 @@
+export const ROLL_NO = "23b2505";
+export const CARD = "P4-T10-L5-C4";
+export const APP_NAME = "Loop Coach";
+export const SESSION_SECONDS = 600;       // 10 minutes (constraint C4)
+export const MAX_QUESTIONS = 8;           // scored questions per session
+export const MAX_GENERATED = 3;           // AI-assisted generated questions per session
+export const AI_TIMEOUT_GRADE_MS = 8000;
+export const AI_TIMEOUT_GENERATE_MS = 6000;
+export const STORAGE_STATE_KEY = "et617_state_v1";
+export const STORAGE_LOG_KEY = "et617_log_v1";
